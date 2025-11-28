@@ -29,6 +29,26 @@ Beyond these there are zero-shot applications in masked reconstruction and forec
 ## Getting started
 
 1. Create a virtual environment
+   ```
+    conda create -n prithvi -c conda-forge \
+     python=3.10 \
+     "h5py~=3.3" \
+     "numpy~=1.26" \
+     pandas \
+     "pytorch>=2.2" \
+     "packaging>=24.0" \
+     "tqdm>=4.66.4" \
+     "xarray>=2024.3.0" \
+     "h5netcdf>=1.3.0" \
+     "pyyaml~=6.0" \
+     requests \
+     requests-cache \
+     scipy \
+     "huggingface_hub>=0.25" \
+     "jupyterlab>=4.2.0" \
+     "matplotlib>=3.8" \
+     "tinycss2=1.4.0"
+   ```
 2. Clone this repository and install Prithvi WxC as a module
    ```
    git clone https://github.com/NASA-IMPACT/Prithvi-WxC
