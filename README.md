@@ -51,8 +51,8 @@ Beyond these there are zero-shot applications in masked reconstruction and forec
    ```
 2. Clone this repository and install Prithvi WxC as a module
    ```
-   git clone https://github.com/NASA-IMPACT/Prithvi-WxC
-   cd Prithvi-WxC
+   git clone https://github.com/jovidsilva/Prithvi-WxC-MPS
+   cd Prithvi-WxC-MPS
    pip install '.[examples]'
    ```
 3. Validate that the model behaves as expected. For that run
