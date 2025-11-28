@@ -21,8 +21,18 @@ from validation.config import ExperimentConfig, get_config
 from validation.reproducibility import hash_tensor, validate_inputs, validate_rmse
 from validation.get_assets import get_model_data, get_data
 
+# ---------------------------------------------------------------------
+# Device selection: prefer MPS (Apple), then CUDA, else CPU
+# ---------------------------------------------------------------------
+if torch.backends.mps.is_available():
+    DEVICE = torch.device("mps")
+elif torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+else:
+    DEVICE = torch.device("cpu")
+print("Using device:", DEVICE)
+
 # xarray changed the naming in this classmethod in 2023.11.0 from to_array to to_dataarray
-# See https://github.com/pydata/xarray/releases/tag/v2023.11.0.
 if parse_version(xr.__version__) >= parse_version('2023.11.0'):
     XARRAY_TO_DATAARRAY = True
 else:
@@ -52,10 +62,6 @@ def preproc(batch: list[Dict], padding: dict[tuple[int]], rollout: bool=False) -
             lead_time:                      batch
             climate (Optional; no rollout): batch, parameter, lat, lon
             climate (Optional; rollout):    batch, time, parameter, lat, lon
-        Here, for x and y, 'parameter' is [surface parameter, upper level parameter x level].
-        Similarly for the static information we have
-            [sin(lat), cos(lon), sin(lon), cos(doy), sin(doy), cos(hod), sin(hod), ...]
-        Where `...` marks additional static information such as lake cover.
     '''
 
     data_keys = set(batch[0].keys())
@@ -381,7 +387,7 @@ def get_dataloaders(config: ExperimentConfig) -> tuple[DataLoader, DataLoader]:
         dataset=valid_dataset,
         shuffle=False,
         batch_size=1,
-        pin_memory=True,
+        pin_memory=False,
         drop_last=False,
         collate_fn=partial(
             preproc,
@@ -480,7 +486,8 @@ def make_forecast(
 
     print("Starting validation run.")
 
-    dev_batch = {k: v.to("cuda") for k, v in batch.items()}
+    # Move batch to selected device
+    dev_batch = {k: v.to(DEVICE) for k, v in batch.items()}
 
     xlast = dev_batch["x"][:,1]
     dev_batch["lead_time"] = dev_batch["lead_time"][...,0]
@@ -560,9 +567,13 @@ def validation_run(
     assert len(validation_loader) == 1, "Expecting a single validation sample."
     assert rollout == 20, "Expecting 20 rollout steps."
 
-    lats = torch.from_numpy(lats.reshape(1, 1, lats.shape[0], 1)).to("cuda")
+    # Ensure float32 for MPS
+    lats = torch.from_numpy(lats.reshape(1, 1, lats.shape[0], 1)).to(dtype=torch.float32)
     lats = torch.pi * lats / 180.
-    weights = torch.cos(lats).expand(1, len(variable_names), 360, 576)
+    lats = lats.to(DEVICE)
+
+    weights = torch.cos(lats).to(dtype=torch.float32)
+    weights = weights.expand(1, len(variable_names), 360, 576)
 
     model.eval()
 
@@ -614,9 +625,10 @@ def main(config: ExperimentConfig) -> None:
     torch.jit.enable_onednn_fusion(True)
     
     random.seed(42 + 0)
-    torch.cuda.manual_seed(42 + 0)
     torch.manual_seed(42 + 0)
     np.random.seed(42 + 0)
+    if DEVICE.type == "cuda":
+        torch.cuda.manual_seed(42 + 0)
 
     # Create model
     model = get_model(config)
@@ -624,14 +636,18 @@ def main(config: ExperimentConfig) -> None:
     rollout_arg = int(config.data.lead_time / -config.data.input_time)
     print(f"--> Forecast (rollout) validation with {rollout_arg} steps.")
 
-    state_dict = torch.load("data/weights/prithvi.wxc.rollout.2300m.v1.pt", weights_only=False)
+    state_dict = torch.load(
+        "data/weights/prithvi.wxc.rollout.2300m.v1.pt",
+        weights_only=False,
+        map_location="cpu",
+    )
     if "model_state" in state_dict:
         state_dict = state_dict["model_state"]
     model.load_state_dict(state_dict, strict=True)
-    model = model.to("cuda")
+    model = model.to(DEVICE)
 
     # Loss functions
-    lats = np.linspace(-90, 90, 361)
+    lats = np.linspace(-90, 90, 361, dtype=np.float32)
     lats = lats[: config.data.padding['lat'][1]]
 
     feature_weights = assemble_output_scalers(config)
