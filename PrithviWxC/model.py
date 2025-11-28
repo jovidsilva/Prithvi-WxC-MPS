@@ -123,9 +123,9 @@ class MultiheadAttention(nn.Module):
     Note: Even though the documentation page for `scaled_dot_product_attention`
     states that tensors can have any number of dimensions as long as the shapes
     are along the lines of `(B, ..., S, E)`, the fused and memory efficient
-    mechanisms we enforce here require a 4D input. Some experimentatino shows
+    mechanisms we enforce here require a 4D input. Some experimentation shows
     that this should be of shape `(B, H, S, E)`, where `H` represents heads.
-    However, as of right now this is not confirmed int he documentation.
+    However, as of right now this is not confirmed in the documentation.
     """
 
     def __init__(self, features: int, n_heads: int, dropout: float) -> None:
@@ -175,7 +175,7 @@ class MultiheadAttention(nn.Module):
         # q, k, v [B, H, S, C/H]
         q, k, v = (
             self.qkv_layer(x)
-            .view(B, S, self.n_heads, 3 * (C // self.n_heads))
+            .reshape(B, S, self.n_heads, 3 * (C // self.n_heads))
             .transpose(1, 2)
             .chunk(chunks=3, dim=3)
         )
@@ -194,14 +194,14 @@ class MultiheadAttention(nn.Module):
                 # x [B, H, S, C//H]
                 x = F.scaled_dot_product_attention(q, k, v, dropout_p=self.dropout)
 
-        # x [B, S, C]
-        x = x.transpose(1, 2).view(B, S, C)
+        # x [B, S, C]  (use reshape to handle non-contiguous tensor safely)
+        x = x.transpose(1, 2).reshape(B, S, C)
 
         # x [B, S, C]
         x = self.w_layer(x)
 
-        # Back to input shape
-        x = x.view(*passenger_dims, S, self.features)
+        # Back to input shape (also use reshape here)
+        x = x.reshape(*passenger_dims, S, self.features)
         return x
 
 
